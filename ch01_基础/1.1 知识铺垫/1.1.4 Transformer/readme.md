@@ -156,3 +156,71 @@ $$
 最简单的方案是贪心解码（Greedy Decoding），也即每次选取概率最高的一项作为新的输出；
 
 复杂点的方案则是束搜索（Beam Search），每次选取概率较高的$k$个候选项，分别假设本次输出是某一候选项来预测下一输出（共 $k*k$ 个），然后从中选取概率较高的 $k$ 个作为新的候选项，以此类推，预测的代价将是贪心解码的 $k$ 倍，但也更为合理和准确。
+
+## 1.1.4.7 vision in transformer
+
+transformer的体系结构最早是作为自然语言处理任务的实际标准出现的，但它在计算机视觉中的应用一直到论文《AN IMAGE IS WORTH 16X16 WORDS:TRANSFORMERS FOR IMAGE RECOGNITION AT SCALE》在ICLR2021发表并提出vision in transformer即VIT后才得以广泛应用。本节简单介绍VIT的架构。
+
+下图将VIT的结构分成5个部分：
+
+<div align=center>
+<img src="./imgs/1.1.4.12.jpg" width="600" height="300">
+</div>
+<div align=center>图12. vision in transformer </div>
+
+第一部分是将输入的图像进行patch的划分。例如输入图像维度是224×224×3，将图像分成16×16的patch(小方块)，每个patch块可以看做是一个token(词向量)，共有（224/16=14）14×14=196个token，每个token的维度为16×16×3=768，这里patch块大小是16×16，×3则是代表每个patch块是RGB三通道的彩色图像。
+
+第二部分是将patch拉平，经过线性映射得到结果。一个patch块的维度是16×16×3=768，把它拉平成行向量它的长度就为768，一共有14×14=196个patch，所以输入的维度是[196, 768]，经过一个线性映射到指定的维度，比如1024或2048，用全连接层来实现，但映射的维度仍然选择为768，那么此时的输出是[196, 768]。在原文里整个过程称作patch embedding，也就意味着patch embedding的维度为[196, 768]。
+
+第三部分是patch+位置信息编码(原文记作position embedding)。首先生成一个cls token，它的维度为[1, 768]，然后拼接到输入的path embedding，得到的维度为[197, 768]。cls即class，用于对编码向量进行分类。然后对197个patch都生成一个位置信息编码，它的维度同patch维度为[197, 768]，最后patch和位置信息编码直接相加为新的token作为encoder的输入。cls token和位置信息编码是随机生成的可学习参数，可以全零初始化，也可以0-1随机初始化。cls token的作用是为了同NLP领域的Transformer保持一致，最后直接提取cls token作为网络提取得到的特征，作为类别预测的输出，放入MLP进行分类。
+
+第四部分是transformer encoder的结构，类同于上文所讲的transformer架构。
+
+第五部分是MLP分类。整个Encoder的输出为[197, 768]，仅保留最前面的CLS token作为全连接的输入[1, 768]，然后接上全连接层及分类数n_class，使用交叉熵损失函数计算损失，反向传播更新网络的权重和参数。
+
+## 1.1.4.8 swin-transformer
+
+随着VIT及多头注意力机制在计算机视觉领域的广泛使用，研究者也不断对其架构作出创新以达到更好的任务效果。一个著名的成果就是swin-transformer，发表于cvpr2021的《Swin Transformer: Hierarchical Vision Transformer using Shifted Windows》，由于其亮眼的表现已成为当今视觉模型架构的主干。本节简单介绍swin-transformer架构。
+
+首先，VIT应用到图像领域主要有两大挑战：视觉实体变化大，在不同场景下视觉Transformer性能未必很好；图像分辨率高，像素点多，Transformer基于全局自注意力的计算导致计算量较大。针对上述两个问题，原文提出了一种滑动窗口注意力机制（shifted window attention）。 事实上，Swin Transformer 的名字来源于“Shifted window Transformer”。将注意力计算限制在一个窗口中，一方面能引入CNN卷积操作的局部性，另一方面能节省计算量。下图为swin-transformer的整体架构。
+
+<div align=center>
+<img src="./imgs/1.1.4.13.jpg" width="1000" height="300">
+</div>
+<div align=center>图13. swin-transformer </div>
+
+整个模型采取层次化的设计，一共包含4个Stage，每个stage都会缩小输入特征图的分辨率，像CNN一样逐层扩大感受野。在输入开始的时候，做了一个Patch Embedding，将图片切成一个个图块，并嵌入到Embedding。在每个Stage里，由Patch Merging和多个Block组成。其中Patch Merging模块主要在每个Stage一开始降低图片分辨率。
+
+其中有几个地方处理方法与ViT不同：
+- ViT在输入会给embedding进行位置编码。而swin-transformer这里则是作为一个可选项（self.ape），swin-transformer是在计算注意力的时候做了一个相对位置编码。
+- ViT会单独加上一个可学习的位置信息编码，作为分类的token。而swin-transformer则是直接做平均，输出分类，有点类似CNN最后的全局平均池化层。
+
+滑动窗口注意力是swin-transformer的关键。传统的transformer都是基于全局来计算注意力的，因此计算复杂度十分高。而swin transformer则将注意力的计算限制在每个窗口内，进而减少了计算量。下图是滑动窗口注意力机制简图。
+
+<div align=center>
+<img src="./imgs/1.1.4.14.jpg" width="500" height="300">
+</div>
+<div align=center>图14. 滑动窗口注意力 </div>
+
+上图右图是左图向右下方移动半个窗口得到，这么做的原因是为了提取跨窗口的信息。这样做又带来新的问题，之前是4个窗口，且每个窗口大小一致，但是现在是9个窗口，且每个窗口大小不一致，计算上不能批量计算。于是原文提出了cyclic shift，下图是cyclic shift操作过程。
+
+<div align=center>
+<img src="./imgs/1.1.4.15.jpg" width="500" height="300">
+</div>
+<div align=center>图15. cyclic shift </div>
+
+上图第一步先把最上面一行的三个窗口移动到最下面，再把最左边三个窗口移动到最右边，得到cyclic shift，这样cyclic shift中就只有四个窗口了，且四个窗口大小相同，这样就可以进行批量处理了。但是把原本不相干的部分放在了一起，是我们不希望看到的。于是原文又进行了mask操作。
+
+<div align=center>
+<img src="./imgs/1.1.4.16.jpg" width="500" height="300">
+</div>
+<div align=center>图16. mask操作(1) </div>
+
+以上图右上角序列为1和2的块组成的窗口为例进行说明，12代表索引，则窗口长为7，其中元素索引组成的序列为11112221111222 ...1111222，那么做自注意力点乘就如下图所示。其中蓝色和黄色部分是我们要留下的，灰色部分是不要的，需要mask掉，具体做法是加上一个维度一样的矩阵，其中蓝色和黄色部分设为0，灰色部分都设成-100，加完后蓝色和黄色不变，而灰色部分接近-100。这样灰色部分再进行softmax时候就几乎为0了。
+
+<div align=center>
+<img src="./imgs/1.1.4.17.jpg" width="500" height="300">
+</div>
+<div align=center>图17. mask操作(2) </div>
+
+这样就讲完了Swin Transformer的结构，最主要的就是它的层次性和局部性，论文的各种操作都是基于这两点提出的。在分类，检测，分割任务上都取得了SOTA的效果。
